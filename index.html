@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SWBNO Work Order Dashboard Extractor</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #f0f2f5;
+        color: #1a1a2e;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        background: #1a1a2e;
+        color: white;
+        padding: 1.25rem 2rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      header h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+
+      header span {
+        font-size: 0.85rem;
+        opacity: 0.6;
+      }
+
+      main {
+        flex: 1;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        max-width: 1400px;
+        margin: 0 auto;
+        width: 100%;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 0.65rem 1.5rem;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, opacity 0.15s;
+      }
+
+      #btn-generate {
+        background: #0077b6;
+        color: white;
+      }
+
+      #btn-generate:hover:not(:disabled) {
+        background: #005f99;
+      }
+
+      #btn-generate:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      #btn-download {
+        background: #2d9e5f;
+        color: white;
+        display: none;
+      }
+
+      #btn-download:hover {
+        background: #237a4a;
+      }
+
+      #status {
+        font-size: 0.9rem;
+        color: #555;
+      }
+
+      #status.error {
+        color: #c0392b;
+      }
+
+      .panel {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        padding: 0.9rem 1.25rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #e9ecef;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #495057;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .panel-header a {
+        font-size: 0.8rem;
+        color: #0077b6;
+        text-decoration: none;
+        font-weight: normal;
+      }
+
+      .panel-header a:hover {
+        text-decoration: underline;
+      }
+
+      #table-container {
+        overflow-x: auto;
+        max-height: 450px;
+        overflow-y: auto;
+      }
+
+      #preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+
+      #preview-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #1a1a2e;
+        color: white;
+      }
+
+      #preview-table th {
+        padding: 0.65rem 1rem;
+        text-align: left;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      #preview-table td {
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid #f0f0f0;
+        white-space: nowrap;
+      }
+
+      #preview-table tbody tr:hover {
+        background: #f0f7ff;
+      }
+
+      #preview-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .empty-state {
+        padding: 3rem;
+        text-align: center;
+        color: #aaa;
+        font-size: 0.9rem;
+      }
+
+      .row-count {
+        font-size: 0.8rem;
+        color: #888;
+        font-weight: normal;
+      }
+
+      iframe-panel {
+        display: contents;
+      }
+
+      #iframe-container iframe {
+        width: 100%;
+        height: 550px;
+        border: none;
+        display: block;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255,255,255,0.4);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>SWBNO Work Order Dashboard Extractor</h1>
+      <span>Sewerage &amp; Water Board of New Orleans</span>
+    </header>
+
+    <main>
+      <div class="controls">
+        <button id="btn-generate">Generate Report</button>
+        <button id="btn-download">Download CSV</button>
+        <span id="status"></span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span>Work Orders <span id="row-count" class="row-count"></span></span>
+        </div>
+        <div id="table-container">
+          <div class="empty-state">Click "Generate Report" to fetch and display the work order data.</div>
+        </div>
+      </div>
+
+      <div class="panel" id="iframe-panel">
+        <div class="panel-header">
+          <span>Live Dashboard Reference</span>
+          <a href="https://swbno.org/Projects/WorkOrderDashboard" target="_blank" rel="noopener">Open in new tab ↗</a>
+        </div>
+        <div id="iframe-container">
+          <iframe
+            src="https://swbno.org/Projects/WorkOrderDashboard"
+            title="SWBNO Work Order Dashboard"
+            sandbox="allow-same-origin allow-scripts allow-forms"
+          ></iframe>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
