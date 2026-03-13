@@ -9,6 +9,9 @@ const HEADERS = ['Work Order #', 'Date', 'Zone', 'Address #', 'Street',
   'Cross Street', 'Problem Code', 'Status', 'Problem Description', 'Age (days)',
   'Dept Code', 'WO Type', 'Priority']
 
+// Columns where raw values are numbers and should sort numerically
+const NUMERIC_FIELDS = new Set(['WO_DATE', 'W_O_AGE', 'ADD_'])
+
 const MAX_RECORD_COUNT = 2000
 
 const btnGenerate = document.getElementById('btn-generate') as HTMLButtonElement
@@ -18,8 +21,12 @@ const tableContainer = document.getElementById('table-container') as HTMLDivElem
 const rowCountEl = document.getElementById('row-count') as HTMLSpanElement
 
 type Feature = { attributes: Record<string, string | number | null> }
+type SortDir = 'asc' | 'desc'
 
+let allFeatures: Feature[] = []
 let csvContent = ''
+let sortCol = -1
+let sortDir: SortDir = 'asc'
 
 function setStatus(msg: string, isError = false) {
   statusEl.textContent = msg
@@ -73,8 +80,69 @@ function formatValue(field: string, value: string | number | null): string {
   return String(value)
 }
 
-function featuresToRows(features: Feature[]): string[][] {
-  return features.map(f => FIELDS.map(field => formatValue(field, f.attributes[field] ?? null)))
+function sortedFeatures(): Feature[] {
+  if (sortCol < 0) return allFeatures
+  const field = FIELDS[sortCol]
+  const numeric = NUMERIC_FIELDS.has(field)
+  return [...allFeatures].sort((a, b) => {
+    const av = a.attributes[field] ?? (numeric ? -Infinity : '')
+    const bv = b.attributes[field] ?? (numeric ? -Infinity : '')
+    let cmp: number
+    if (numeric) {
+      cmp = (av as number) - (bv as number)
+    } else {
+      cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' })
+    }
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+}
+
+function renderTbody(features: Feature[]): string {
+  return `<tbody>${features.map(f =>
+    `<tr>${FIELDS.map(field =>
+      `<td>${formatValue(field, f.attributes[field] ?? null)}</td>`
+    ).join('')}</tr>`
+  ).join('')}</tbody>`
+}
+
+function renderThead(): string {
+  const ths = HEADERS.map((h, i) => {
+    const indicator = i === sortCol ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+    const active = i === sortCol ? ' class="sorted"' : ''
+    return `<th${active} data-col="${i}">${h}${indicator}</th>`
+  }).join('')
+  return `<thead><tr>${ths}</tr></thead>`
+}
+
+function renderTable() {
+  const features = sortedFeatures()
+  const table = document.getElementById('preview-table')
+  if (table) {
+    table.querySelector('thead')!.outerHTML = renderThead()
+    table.querySelector('tbody')!.outerHTML = renderTbody(features)
+    // Re-attach header after innerHTML replacement loses the element reference
+    attachHeaderListeners()
+  } else {
+    tableContainer.innerHTML =
+      `<table id="preview-table">${renderThead()}${renderTbody(features)}</table>`
+    attachHeaderListeners()
+  }
+}
+
+function attachHeaderListeners() {
+  const table = document.getElementById('preview-table')!
+  table.querySelectorAll('thead th').forEach(th => {
+    (th as HTMLElement).addEventListener('click', () => {
+      const col = Number((th as HTMLElement).dataset.col)
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc'
+      } else {
+        sortCol = col
+        sortDir = 'asc'
+      }
+      renderTable()
+    })
+  })
 }
 
 function escapeCSV(value: string): string {
@@ -84,18 +152,9 @@ function escapeCSV(value: string): string {
   return value
 }
 
-function rowsToCSV(rows: string[][]): string {
-  const lines = [HEADERS, ...rows].map(row => row.map(escapeCSV).join(','))
-  return lines.join('\n')
-}
-
-function renderTable(rows: string[][]) {
-  const thead = `<thead><tr>${HEADERS.map(h => `<th>${h}</th>`).join('')}</tr></thead>`
-  const tbody = `<tbody>${rows.map(
-    row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`
-  ).join('')}</tbody>`
-  tableContainer.innerHTML = `<table id="preview-table">${thead}${tbody}</table>`
-  rowCountEl.textContent = `— ${rows.length.toLocaleString()} records`
+function buildCSV(features: Feature[]): string {
+  const rows = features.map(f => FIELDS.map(field => escapeCSV(formatValue(field, f.attributes[field] ?? null))))
+  return [HEADERS.map(escapeCSV), ...rows].map(r => r.join(',')).join('\n')
 }
 
 async function generateReport() {
@@ -103,19 +162,20 @@ async function generateReport() {
   setStatus('Connecting to ArcGIS feature service…')
   btnDownload.style.display = 'none'
   rowCountEl.textContent = ''
+  sortCol = -1
 
   try {
-    const features = await fetchAll()
-    if (features.length === 0) {
+    allFeatures = await fetchAll()
+    if (allFeatures.length === 0) {
       tableContainer.innerHTML = '<div class="empty-state">No records returned.</div>'
       setStatus('Done — no records found.')
       return
     }
-    const rows = featuresToRows(features)
-    csvContent = rowsToCSV(rows)
-    renderTable(rows)
+    csvContent = buildCSV(allFeatures)
+    renderTable()
+    rowCountEl.textContent = `— ${allFeatures.length.toLocaleString()} records`
     btnDownload.style.display = 'inline-block'
-    setStatus(`Done. ${rows.length.toLocaleString()} work orders loaded.`)
+    setStatus(`Done. ${allFeatures.length.toLocaleString()} work orders loaded.`)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     setStatus(`Error: ${message}`, true)
