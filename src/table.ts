@@ -25,6 +25,11 @@ export function formatValue(type: string, value: string | number | null): string
   if (type === 'esriFieldTypeDate' && typeof value === 'number') {
     return new Date(value).toLocaleDateString('en-US')
   }
+  if (type === 'esriFieldTypeTimespan' && typeof value === 'number') {
+    const days = Math.floor(value / 24)
+    const hours = Math.floor(value % 24)
+    return days > 0 ? `${days}d ${hours}h` : `${hours}h`
+  }
   return String(value)
 }
 

@@ -76,6 +76,7 @@ async function main() {
 
   let opened = 0
   let closed = 0
+  let reopened = 0
 
   // Move disappeared WOs from open → closed
   for (const [key, entry] of Object.entries(snapshot.open)) {
@@ -86,10 +87,14 @@ async function main() {
     }
   }
 
-  // Add newly seen WOs to open
+  // Add newly seen WOs to open; re-open previously closed ones that reappear
   for (const feature of liveFeatures) {
     const key = String(feature.attributes[WO_KEY])
-    if (!snapshot.open[key]) {
+    if (snapshot.closed[key]) {
+      snapshot.open[key] = { first_seen: snapshot.closed[key].first_seen, attributes: feature.attributes }
+      delete snapshot.closed[key]
+      reopened++
+    } else if (!snapshot.open[key]) {
       snapshot.open[key] = { first_seen: now, attributes: feature.attributes }
       opened++
     }
@@ -99,7 +104,7 @@ async function main() {
 
   await writeFile(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2) + '\n', 'utf8')
 
-  console.log(`Done. opened=${opened} closed=${closed} total_open=${Object.keys(snapshot.open).length} total_closed=${Object.keys(snapshot.closed).length}`)
+  console.log(`Done. opened=${opened} closed=${closed} reopened=${reopened} total_open=${Object.keys(snapshot.open).length} total_closed=${Object.keys(snapshot.closed).length}`)
 }
 
 main().catch(err => {

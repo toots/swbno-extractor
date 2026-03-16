@@ -34,21 +34,21 @@ function mergeClosedWorkOrders(
   snapshot: Snapshot,
 ): { features: Feature[]; meta: LayerMeta } {
   const daysToCloseField: ArcGISField = {
-    name: 'DAYS_TO_CLOSE',
-    alias: 'Days to Close',
-    type: 'esriFieldTypeDouble',
+    name: 'TIME_TO_CLOSE',
+    alias: 'Time to Close',
+    type: 'esriFieldTypeTimespan',
   }
 
   const closedEntries = Object.values(snapshot.closed)
   const closedFeatures: Feature[] = closedEntries.map(entry => {
     const firstSeen = new Date(entry.first_seen).getTime()
     const closedAt = new Date(entry.closed_at!).getTime()
-    const daysToClose = Math.round((closedAt - firstSeen) / 86_400_000 * 10) / 10
+    const hoursToClose = (closedAt - firstSeen) / 3_600_000
     return {
       attributes: {
         ...entry.attributes,
         STATUS: 'CLOSED',
-        DAYS_TO_CLOSE: daysToClose,
+        TIME_TO_CLOSE: hoursToClose,
       },
     }
   })
@@ -56,7 +56,7 @@ function mergeClosedWorkOrders(
   const augmentedMeta: LayerMeta = {
     ...meta,
     fields: [...meta.fields, daysToCloseField],
-    numericFields: new Set([...meta.numericFields, 'DAYS_TO_CLOSE']),
+    numericFields: new Set([...meta.numericFields, 'TIME_TO_CLOSE']),
   }
 
   return { features: [...liveFeatures, ...closedFeatures], meta: augmentedMeta }
