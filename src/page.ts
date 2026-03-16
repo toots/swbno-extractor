@@ -1,8 +1,66 @@
-import type { LayerMeta, ServiceEntry } from './types'
+import type { ArcGISField, Feature, LayerMeta, ServiceEntry } from './types'
 import { fetchLayerMeta, fetchAll } from './arcgis'
 import { createTableState, renderTable, buildCSV, downloadCSV } from './table'
 
 const metaCache = new Map<string, LayerMeta>()
+
+const WO_SERVICE = 'Open_Maintenance_Work_Orders_(View)'
+
+interface SnapshotEntry {
+  first_seen: string
+  closed_at?: string
+  attributes: Record<string, string | number | null>
+}
+
+interface Snapshot {
+  last_updated: string | null
+  open: Record<string, SnapshotEntry>
+  closed: Record<string, SnapshotEntry>
+}
+
+async function fetchSnapshot(): Promise<Snapshot | null> {
+  try {
+    const res = await fetch('./data/work_orders_snapshot.json')
+    if (!res.ok) return null
+    return await res.json() as Snapshot
+  } catch {
+    return null
+  }
+}
+
+function mergeClosedWorkOrders(
+  meta: LayerMeta,
+  liveFeatures: Feature[],
+  snapshot: Snapshot,
+): { features: Feature[]; meta: LayerMeta } {
+  const daysToCloseField: ArcGISField = {
+    name: 'DAYS_TO_CLOSE',
+    alias: 'Days to Close',
+    type: 'esriFieldTypeDouble',
+  }
+
+  const closedEntries = Object.values(snapshot.closed)
+  const closedFeatures: Feature[] = closedEntries.map(entry => {
+    const firstSeen = new Date(entry.first_seen).getTime()
+    const closedAt = new Date(entry.closed_at!).getTime()
+    const daysToClose = Math.round((closedAt - firstSeen) / 86_400_000 * 10) / 10
+    return {
+      attributes: {
+        ...entry.attributes,
+        STATUS: 'CLOSED',
+        DAYS_TO_CLOSE: daysToClose,
+      },
+    }
+  })
+
+  const augmentedMeta: LayerMeta = {
+    ...meta,
+    fields: [...meta.fields, daysToCloseField],
+    numericFields: new Set([...meta.numericFields, 'DAYS_TO_CLOSE']),
+  }
+
+  return { features: [...liveFeatures, ...closedFeatures], meta: augmentedMeta }
+}
 
 export async function renderPage(
   contentEl: HTMLElement,
@@ -85,11 +143,25 @@ export async function renderPage(
     rowCountEl.textContent = ''
 
     try {
-      const features = await fetchAll(layerUrl, meta.fields, meta.dateFields, count => {
-        setStatus(`Fetching… ${count} records so far`)
-      })
+      const isWOService = entry.serviceName === WO_SERVICE
+
+      const [liveFeatures, snapshot] = await Promise.all([
+        fetchAll(layerUrl, meta.fields, meta.dateFields, count => {
+          setStatus(`Fetching… ${count} records so far`)
+        }),
+        isWOService ? fetchSnapshot() : Promise.resolve(null),
+      ])
 
       if (getNavKey() !== entry.navKey) return
+
+      let features = liveFeatures
+      let effectiveMeta = meta
+
+      if (isWOService && snapshot) {
+        const merged = mergeClosedWorkOrders(meta, liveFeatures, snapshot)
+        features = merged.features
+        effectiveMeta = merged.meta
+      }
 
       if (features.length === 0) {
         tableContainer.innerHTML = '<div class="empty-state">No records returned.</div>'
@@ -97,7 +169,7 @@ export async function renderPage(
         return
       }
 
-      const state = createTableState(meta, features)
+      const state = createTableState(effectiveMeta, features)
       renderTable(tableContainer, state)
       csvContent = buildCSV(state)
       rowCountEl.textContent = `— ${features.length.toLocaleString()} records`
